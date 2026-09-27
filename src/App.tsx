@@ -16,6 +16,9 @@ import ParserModal from './ParserModal';
 import PrintableSlip from './PrintableSlip';
 import OddsTimeline from './OddsTimeline';
 import H2HDisplay from './H2HDisplay';
+import FormSparkline from './FormSparkline';
+import ConfidenceHeatmap from './ConfidenceHeatmap';
+import WelcomeModal from './WelcomeModal';
 import { usePersistence } from './usePersistence';
 
 // ============ SPARKLINE CHART ============
@@ -305,8 +308,15 @@ function MatchGrid({ matches, selections, onSelectionChange, showSlumpOnly, onTo
                 {expandedMatch === match.id && (
                   <tr className="border-b border-slate-800/50">
                     <td colSpan={10} className="px-4 py-3 bg-slate-900/80">
-                      <div className="grid gap-4 md:grid-cols-2">
+                      <div className="grid gap-4 md:grid-cols-3">
                         <H2HDisplay match={match} />
+                        <div className="rounded-lg bg-slate-800/40 p-3">
+                          <div className="mb-2 text-[10px] font-medium text-slate-500 uppercase">Form Trends</div>
+                          <div className="space-y-3">
+                            <FormSparkline form={match.form.home} team={match.homeTeam} color="#10b981" />
+                            <FormSparkline form={match.form.away} team={match.awayTeam} color="#3b82f6" />
+                          </div>
+                        </div>
                         <div className="rounded-lg bg-slate-800/40 p-3">
                           <div className="mb-2 text-[10px] font-medium text-slate-500 uppercase">Match Insight</div>
                           <div className="space-y-2">
@@ -488,6 +498,11 @@ function StrategiesView({ matches, activeStrategy, setActiveStrategy }: {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Confidence Heatmap */}
+      <div className="mt-6">
+        <ConfidenceHeatmap matches={matches} selections={matches.map((_, i) => strategies.find(s => s.id === activeStrategy)?.picks[i] ? [strategies.find(s => s.id === activeStrategy)!.picks[i]] : ['1'])} strategies={strategies} />
       </div>
 
       {/* Hedging & Coverage */}
@@ -960,7 +975,9 @@ function SimulatorView({ matches, selections }: {
   const [scores, setScores] = useState<{ home: number; away: number }[]>(
     matches.map(() => ({ home: 0, away: 0 }))
   );
+  const [halfTimeScores, setHalfTimeScores] = useState<{ home: number; away: number }[] | null>(null);
   const [results, setResults] = useState<('1' | 'X' | '2' | null)[]>(matches.map(() => null));
+  const [halfTimeResults, setHalfTimeResults] = useState<('1' | 'X' | '2' | null)[]>(matches.map(() => null));
   const [goalEvents, setGoalEvents] = useState<{ matchIdx: number; team: 'home' | 'away'; minute: number }[]>([]);
 
   useEffect(() => {
@@ -968,6 +985,21 @@ function SimulatorView({ matches, selections }: {
     const interval = setInterval(() => {
       setMinute(prev => {
         const next = prev + 1;
+        
+        // Capture half-time scores at minute 45
+        if (next === 45) {
+          setScores(currentScores => {
+            setHalfTimeScores([...currentScores]);
+            const htResults = currentScores.map(s => {
+              if (s.home > s.away) return '1' as const;
+              if (s.home < s.away) return '2' as const;
+              return 'X' as const;
+            });
+            setHalfTimeResults(htResults);
+            return currentScores;
+          });
+        }
+        
         if (next >= 90) {
           setIsRunning(false);
           // Finalize results
@@ -982,7 +1014,7 @@ function SimulatorView({ matches, selections }: {
           });
           return 90;
         }
-        // Random goal events (~3% per minute per match)
+        // Random goal events (~4% per minute per match)
         if (Math.random() < 0.04) {
           const matchIdx = Math.floor(Math.random() * matches.length);
           const team = Math.random() < 0.5 ? 'home' : 'away';
@@ -1007,7 +1039,9 @@ function SimulatorView({ matches, selections }: {
     setIsRunning(false);
     setMinute(0);
     setScores(matches.map(() => ({ home: 0, away: 0 })));
+    setHalfTimeScores(null);
     setResults(matches.map(() => null));
+    setHalfTimeResults(matches.map(() => null));
     setGoalEvents([]);
   };
 
@@ -1045,7 +1079,7 @@ function SimulatorView({ matches, selections }: {
       </div>
 
       {/* Scoreboard */}
-      <div className="mb-4 grid grid-cols-3 gap-3">
+      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 text-center">
           <div className="text-[10px] text-slate-500 uppercase">Correct Picks</div>
           <div className="tabular-nums text-2xl font-bold text-emerald-400">{correctPicks}/{matches.length}</div>
@@ -1060,22 +1094,48 @@ function SimulatorView({ matches, selections }: {
           <div className="text-[10px] text-slate-500 uppercase">Goals</div>
           <div className="tabular-nums text-2xl font-bold text-amber-400">{goalEvents.length}</div>
         </div>
+        {halfTimeScores && (
+          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 text-center">
+            <div className="text-[10px] text-slate-500 uppercase">HT Correct</div>
+            <div className="tabular-nums text-2xl font-bold text-violet-400">
+              {halfTimeResults.filter((r, i) => r && selections[i].includes(r)).length}/{matches.length}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Half-Time Banner */}
+      {minute === 45 && halfTimeScores && (
+        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-center animate-slide-up">
+          <div className="text-xs font-bold text-amber-400">⏱ HALF TIME</div>
+          <div className="mt-1 text-[10px] text-slate-400">
+            {halfTimeResults.filter((r, i) => r && selections[i].includes(r)).length}/{matches.length} picks correct at half-time
+          </div>
+        </div>
+      )}
 
       {/* Match Results */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
         <div className="space-y-1.5">
           {matches.map((match, i) => {
             const score = scores[i];
+            const htScore = halfTimeScores ? halfTimeScores[i] : null;
             const result = results[i];
             const isCorrect = result ? selections[i].includes(result) : null;
             return (
               <div key={match.id} className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${isCorrect === true ? 'bg-emerald-500/10' : isCorrect === false ? 'bg-rose-500/10' : 'bg-slate-800/40'}`}>
                 <span className="tabular-nums w-5 text-[10px] text-slate-600">{match.id}</span>
                 <span className="flex-1 text-xs text-slate-300 truncate">{match.homeTeam}</span>
-                <span className="tabular-nums text-sm font-bold text-slate-200">
-                  {score.home} - {score.away}
-                </span>
+                <div className="flex flex-col items-center">
+                  {htScore && (
+                    <span className="tabular-nums text-[9px] text-slate-500">
+                      HT: {htScore.home}-{htScore.away}
+                    </span>
+                  )}
+                  <span className="tabular-nums text-sm font-bold text-slate-200">
+                    {score.home} - {score.away}
+                  </span>
+                </div>
                 <span className="flex-1 text-right text-xs text-slate-300 truncate">{match.awayTeam}</span>
                 {result && (
                   <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${isCorrect ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
@@ -1220,6 +1280,7 @@ export default function App() {
   const [showParser, setShowParser] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
   const [selectedMatchForTimeline, setSelectedMatchForTimeline] = useState<number | null>(1);
   const { savedSlips, saveSlip, deleteSlip, session, initSession, updateSession } = usePersistence();
 
@@ -1241,16 +1302,49 @@ export default function App() {
     setSelections(strategy.picks.map(p => [p]));
   }, [activeStrategy, jackpotType, matchCount]);
 
-  // Session restoration
+  // Session restoration & welcome modal
   useEffect(() => {
-    if (session) {
-      setJackpotType(session.jackpotType);
-      setActiveStrategy(session.activeStrategy);
-      setMatchCount(session.matchCount);
+    const hasVisited = localStorage.getItem('jackpotiq_visited');
+    if (hasVisited) {
+      if (session) {
+        setJackpotType(session.jackpotType);
+        setActiveStrategy(session.activeStrategy);
+        setMatchCount(session.matchCount);
+      }
     } else {
+      setShowWelcome(true);
+      localStorage.setItem('jackpotiq_visited', 'true');
       initSession({ jackpotType: 'mega', activeStrategy: 'balanced', matchCount: 17 });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      switch (e.key) {
+        case '1': setView('matches'); break;
+        case '2': setView('strategies'); break;
+        case '3': setView('permutations'); break;
+        case '4': setView('budget'); break;
+        case '5': setView('slip'); break;
+        case '6': setView('simulator'); break;
+        case 'm':
+        case 'M': setJackpotType('mega'); break;
+        case 'w':
+        case 'W': setJackpotType('midweek'); break;
+        case 's':
+        case 'S':
+          if (view === 'slip') handleSaveSlip();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist session changes
   useEffect(() => {
@@ -1459,6 +1553,7 @@ export default function App() {
       </main>
 
       {/* Modals */}
+      <WelcomeModal isOpen={showWelcome} onClose={() => setShowWelcome(false)} />
       <ParserModal
         isOpen={showParser}
         onClose={() => setShowParser(false)}
