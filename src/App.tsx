@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, Fragment } from 'react';
 import { Match, Selection, ViewMode } from './types';
 import {
   megaJackpot, midweekJackpot, generateStrategies,
@@ -9,8 +9,14 @@ import {
   Trophy, Zap, Target, Wallet, Ticket, Play, Copy, Check,
   Download, Share2, ChevronDown, Filter, TrendingUp,
   AlertTriangle, Shield, Flame, BarChart3, Clock, X,
-  ArrowUpRight, ArrowDownRight, Minus, RefreshCw, Layers
+  ArrowUpRight, ArrowDownRight, Minus, RefreshCw, Layers,
+  Upload, Printer, History, Save
 } from 'lucide-react';
+import ParserModal from './ParserModal';
+import PrintableSlip from './PrintableSlip';
+import OddsTimeline from './OddsTimeline';
+import H2HDisplay from './H2HDisplay';
+import { usePersistence } from './usePersistence';
 
 // ============ SPARKLINE CHART ============
 function Sparkline({ data, color = '#10b981', height = 32 }: { data: number[]; color?: string; height?: number }) {
@@ -169,6 +175,7 @@ function MatchGrid({ matches, selections, onSelectionChange, showSlumpOnly, onTo
   onToggleSlump: () => void;
 }) {
   const filteredMatches = showSlumpOnly ? matches.filter(m => m.isSlump) : matches;
+  const [expandedMatch, setExpandedMatch] = useState<number | null>(null);
 
   // Generate mock odds drift data
   const oddsDrift = useMemo(() => matches.map(m => ({
@@ -222,7 +229,8 @@ function MatchGrid({ matches, selections, onSelectionChange, showSlumpOnly, onTo
               const drift = oddsDrift[realIdx];
               const favOddsKey = sel[0] as '1' | 'X' | '2';
               return (
-                <tr key={match.id} className={`border-b border-slate-800/50 transition-colors hover:bg-slate-800/30 ${match.isSlump ? 'bg-rose-500/5' : ''}`}>
+                <Fragment key={match.id}>
+                <tr className={`border-b border-slate-800/50 transition-colors hover:bg-slate-800/30 cursor-pointer ${match.isSlump ? 'bg-rose-500/5' : ''}`} onClick={() => setExpandedMatch(expandedMatch === match.id ? null : match.id)}>
                   <td className="px-3 py-2.5">
                     <span className="tabular-nums text-xs font-medium text-slate-500">{match.id}</span>
                     {match.isSlump && <AlertTriangle size={10} className="ml-1 inline text-rose-400" />}
@@ -293,6 +301,45 @@ function MatchGrid({ matches, selections, onSelectionChange, showSlumpOnly, onTo
                     </div>
                   </td>
                 </tr>
+                {/* Expanded H2H Detail Row */}
+                {expandedMatch === match.id && (
+                  <tr className="border-b border-slate-800/50">
+                    <td colSpan={10} className="px-4 py-3 bg-slate-900/80">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <H2HDisplay match={match} />
+                        <div className="rounded-lg bg-slate-800/40 p-3">
+                          <div className="mb-2 text-[10px] font-medium text-slate-500 uppercase">Match Insight</div>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400">Confidence</span>
+                              <span className="tabular-nums font-medium text-emerald-400">{match.confidence || 50}%</span>
+                            </div>
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-700">
+                              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${match.confidence || 50}%` }} />
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400">Implied Probability (1)</span>
+                              <span className="tabular-nums text-slate-300">{(100 / match.odds['1']).toFixed(1)}%</span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400">Implied Probability (X)</span>
+                              <span className="tabular-nums text-slate-300">{(100 / match.odds['X']).toFixed(1)}%</span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400">Implied Probability (2)</span>
+                              <span className="tabular-nums text-slate-300">{(100 / match.odds['2']).toFixed(1)}%</span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400">Overround</span>
+                              <span className="tabular-nums text-amber-400">{((100 / match.odds['1'] + 100 / match.odds['X'] + 100 / match.odds['2']) - 100).toFixed(1)}%</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>
@@ -730,11 +777,13 @@ function BudgetOptimizer({ matches, stake, onApply }: {
 }
 
 // ============ SLIP VIEW ============
-function SlipView({ matches, selections, stake, jackpotType }: {
+function SlipView({ matches, selections, stake, jackpotType, onSave, onPrint }: {
   matches: Match[];
   selections: Selection[][];
   stake: number;
   jackpotType: 'mega' | 'midweek';
+  onSave?: () => void;
+  onPrint?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [copiedTg, setCopiedTg] = useState(false);
@@ -851,7 +900,7 @@ ${matches.map((m, i) => `${i + 1}. ${m.homeTeam} vs ${m.awayTeam} → *${selecti
       </div>
 
       {/* Export Actions */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <button onClick={handleCopy} className="flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-800 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-700 transition-colors">
           <Copy size={14} /> Copy SMS
         </button>
@@ -861,6 +910,10 @@ ${matches.map((m, i) => `${i + 1}. ${m.homeTeam} vs ${m.awayTeam} → *${selecti
         <button onClick={handleExportCSV} className="flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-800 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-700 transition-colors">
           <Download size={14} /> CSV
         </button>
+      </div>
+
+      {/* Save & Share Actions */}
+      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
         <button
           onClick={() => {
             navigator.clipboard.writeText(telegramText);
@@ -871,6 +924,16 @@ ${matches.map((m, i) => `${i + 1}. ${m.homeTeam} vs ${m.awayTeam} → *${selecti
         >
           {copiedTg ? <Check size={14} /> : <Share2 size={14} />} Telegram
         </button>
+        {onSave && (
+          <button onClick={onSave} className="flex items-center justify-center gap-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 py-2.5 text-xs font-bold text-emerald-400 hover:bg-emerald-500/25 transition-colors">
+            <Save size={14} /> Save Slip
+          </button>
+        )}
+        {onPrint && (
+          <button onClick={onPrint} className="flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-800 py-2.5 text-xs font-medium text-slate-300 hover:bg-slate-700 transition-colors">
+            <Printer size={14} /> Print / PDF
+          </button>
+        )}
       </div>
 
       {/* Telegram Share Preview */}
@@ -1091,6 +1154,62 @@ function SubJackpotSelector({ onSelect }: { onSelect: (count: number) => void })
   );
 }
 
+// ============ SLIP HISTORY PANEL ============
+function SlipHistory({ slips, onDelete, onRestore }: {
+  slips: { id: string; jackpotType: string; selections: Selection[][]; totalCombinations: number; totalPrice: number; smsCode: string; createdAt: string; strategy: string }[];
+  onDelete: (id: string) => void;
+  onRestore: (slip: { selections: Selection[][]; jackpotType: 'mega' | 'midweek' }) => void;
+}) {
+  if (slips.length === 0) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-8 text-center">
+        <History size={24} className="mx-auto mb-2 text-slate-700" />
+        <p className="text-xs text-slate-500">No saved slips yet</p>
+        <p className="text-[10px] text-slate-600 mt-1">Save your current slip from the Slip view</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {slips.map(slip => (
+        <div key={slip.id} className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-3">
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${slip.jackpotType === 'mega' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-blue-500/15 text-blue-400'}`}>
+                {slip.jackpotType === 'mega' ? 'MJP' : 'MW'}
+              </span>
+              <span className="text-xs font-medium text-slate-300">{slip.strategy}</span>
+              <span className="tabular-nums text-[10px] text-slate-600">{slip.totalCombinations} lines</span>
+            </div>
+            <div className="mt-1 flex items-center gap-2">
+              <code className="tabular-nums text-[10px] text-slate-500 truncate max-w-[200px]">{slip.smsCode}</code>
+              <span className="text-[10px] text-slate-600">
+                {new Date(slip.createdAt).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="tabular-nums text-xs font-medium text-emerald-400">KES {slip.totalPrice.toLocaleString()}</span>
+            <button
+              onClick={() => onRestore({ selections: slip.selections, jackpotType: slip.jackpotType as 'mega' | 'midweek' })}
+              className="rounded bg-slate-800 px-2 py-1 text-[10px] text-slate-400 hover:text-slate-200 hover:bg-slate-700"
+            >
+              Restore
+            </button>
+            <button
+              onClick={() => onDelete(slip.id)}
+              className="rounded bg-slate-800 px-2 py-1 text-[10px] text-rose-400/60 hover:text-rose-400 hover:bg-slate-700"
+            >
+              <X size={10} />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ============ MAIN APP ============
 export default function App() {
   const [view, setView] = useState<ViewMode>('matches');
@@ -1098,6 +1217,11 @@ export default function App() {
   const [activeStrategy, setActiveStrategy] = useState('balanced');
   const [showSlumpOnly, setShowSlumpOnly] = useState(false);
   const [matchCount, setMatchCount] = useState(17);
+  const [showParser, setShowParser] = useState(false);
+  const [showPrint, setShowPrint] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [selectedMatchForTimeline, setSelectedMatchForTimeline] = useState<number | null>(1);
+  const { savedSlips, saveSlip, deleteSlip, session, initSession, updateSession } = usePersistence();
 
   const currentJackpot = jackpotType === 'mega' ? megaJackpot : midweekJackpot;
   const matches = useMemo(() => {
@@ -1116,6 +1240,39 @@ export default function App() {
     const strategy = strategies.find(s => s.id === activeStrategy) || strategies[1];
     setSelections(strategy.picks.map(p => [p]));
   }, [activeStrategy, jackpotType, matchCount]);
+
+  // Session restoration
+  useEffect(() => {
+    if (session) {
+      setJackpotType(session.jackpotType);
+      setActiveStrategy(session.activeStrategy);
+      setMatchCount(session.matchCount);
+    } else {
+      initSession({ jackpotType: 'mega', activeStrategy: 'balanced', matchCount: 17 });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist session changes
+  useEffect(() => {
+    updateSession({ jackpotType, activeStrategy, matchCount });
+  }, [jackpotType, activeStrategy, matchCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSaveSlip = useCallback(() => {
+    saveSlip({
+      jackpotType,
+      selections,
+      totalCombinations: calculatePermutations(selections),
+      totalPrice: calculatePermutations(selections) * currentJackpot.stake,
+      strategy: activeStrategy,
+      smsCode: formatSMS(selections, jackpotType),
+    });
+  }, [jackpotType, selections, activeStrategy, currentJackpot.stake, saveSlip]);
+
+  const handleRestoreSlip = useCallback((slip: { selections: Selection[][]; jackpotType: 'mega' | 'midweek' }) => {
+    setSelections(slip.selections);
+    setJackpotType(slip.jackpotType);
+    setView('slip');
+  }, []);
 
   const handleSelectionChange = useCallback((index: number, selection: Selection[]) => {
     setSelections(prev => {
@@ -1162,6 +1319,20 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2">
             {jackpotType === 'mega' && <SubJackpotSelector onSelect={handleSubJackpot} />}
+            <button
+              onClick={() => setShowParser(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-violet-500/15 px-3 py-1.5 text-xs font-medium text-violet-400 hover:bg-violet-500/25 transition-colors"
+            >
+              <Upload size={12} />
+              Import
+            </button>
+            <button
+              onClick={() => setShowHistory(!showHistory)}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${showHistory ? 'bg-slate-700 text-slate-200' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}
+            >
+              <History size={12} />
+              {savedSlips.length > 0 && <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] text-emerald-400">{savedSlips.length}</span>}
+            </button>
             <div className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5">
               <Flame size={12} className="text-amber-400" />
               <span className="tabular-nums text-xs font-medium text-slate-300">
@@ -1236,6 +1407,8 @@ export default function App() {
             selections={selections}
             stake={currentJackpot.stake}
             jackpotType={jackpotType}
+            onSave={handleSaveSlip}
+            onPrint={() => setShowPrint(true)}
           />
         )}
         {view === 'simulator' && (
@@ -1244,7 +1417,64 @@ export default function App() {
             selections={selections}
           />
         )}
+
+        {/* History Panel */}
+        {showHistory && (
+          <div className="mt-6 animate-slide-up">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-bold text-slate-200">
+                <History size={14} className="text-slate-400" />
+                Saved Slips
+              </h3>
+              <button onClick={() => setShowHistory(false)} className="text-xs text-slate-500 hover:text-slate-300">
+                Close
+              </button>
+            </div>
+            <SlipHistory
+              slips={savedSlips}
+              onDelete={deleteSlip}
+              onRestore={handleRestoreSlip}
+            />
+          </div>
+        )}
+
+        {/* Odds Drift Timeline */}
+        {view === 'matches' && matches.length > 0 && (
+          <div className="mt-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-200">Odds Movement</h3>
+              <select
+                value={selectedMatchForTimeline || 1}
+                onChange={e => setSelectedMatchForTimeline(Number(e.target.value))}
+                className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300 border border-slate-700"
+              >
+                {matches.map(m => (
+                  <option key={m.id} value={m.id}>{m.id}. {m.homeTeam} vs {m.awayTeam}</option>
+                ))}
+              </select>
+            </div>
+            <OddsTimeline matches={matches} selectedMatchId={selectedMatchForTimeline} />
+          </div>
+        )}
       </main>
+
+      {/* Modals */}
+      <ParserModal
+        isOpen={showParser}
+        onClose={() => setShowParser(false)}
+        onParseComplete={() => {
+          // Parsed data would be loaded into the grid
+          setShowParser(false);
+        }}
+      />
+      <PrintableSlip
+        isOpen={showPrint}
+        onClose={() => setShowPrint(false)}
+        matches={matches}
+        selections={selections}
+        stake={currentJackpot.stake}
+        jackpotType={jackpotType}
+      />
 
       {/* Footer */}
       <footer className="border-t border-slate-800 py-6 text-center">
